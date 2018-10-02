@@ -1,9 +1,9 @@
-#!/usr/bin/python2
 """
 Synchronator.py
-Version: 1.9.0
+Version: 1.10.0
 Created by: Mark Hamilton
 Created: March 17, 2017
+
 Synchronator is a module that synchronizes
 the files between Pythonista and a Dropbox
 app folder. This allows the files to be
@@ -56,6 +56,16 @@ import requests
 from contextlib import contextmanager
 
 import DropboxSetup
+
+
+MODULES = (
+    "requests",
+        "certifi",
+        "chardet",
+        "idna",
+        "urllib3",
+    "dropbox",
+)
 
 
 try:
@@ -243,6 +253,9 @@ class DropboxState:
                     self.make_local_dir(entry_path)
 
 
+def check_dependencies():
+    DropboxSetup.check_dependencies(MODULES)
+
 def check_local(dbx, state):
     with console_color(0, 1, 1):
         print('\nChecking For New Or Updated Local Files')
@@ -288,7 +301,8 @@ def init_dropbox():
         if access_token is not None and access_token != '':
             dbx = DropboxSetup.init('Synchronator_Token', access_token)
         if dbx is None:
-            print('!Failed To Initialize Dropbox Session!')
+            with console_color(1, 0, 0):
+                print('!Failed To Initialize Dropbox Session!')
     return dbx
 
 
@@ -299,7 +313,8 @@ def load_state():
         with open(STATE_FILENAME, 'rb') as state_fr:
             state = pickle.load(state_fr)
     except:
-        print('\nCannot Find State File -- Creating New Local State')
+        with console_color(0, 1, 0):
+            print('\nCannot Find State File -- Creating New Local State')
         state = DropboxState()
     return state
 
@@ -337,6 +352,8 @@ def valid_filename_for_upload(filename):
 
 
 if __name__ == '__main__':
+
+
     rootdir = os.path.expanduser('~/Documents')
     if len(sys.argv) > 1:
         path = os.path.expanduser(sys.argv[1])
@@ -365,3 +382,4 @@ if __name__ == '__main__':
         save_state(state)
         with console_color(0, 1, 1):
             print('\nSync Complete')
+

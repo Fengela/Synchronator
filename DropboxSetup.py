@@ -50,9 +50,44 @@ import DropboxSetup
 dbx = DropboxSetup.init('<TOKEN_FILENAME>', '<ACCESS_TOKEN>')
 """
 
-
+import bs4
 import dropbox
+import importlib
 import os
+import platform
+import plistlib
+import requests
+import sys
+
+from contextlib import contextmanager
+
+
+PYPI_MAP = {
+    'bs4'       : 'beautifulsoup4',
+    'dateutil'  : 'py-dateutil',
+    'faker'     : 'Faker',
+    'sqlite3'   : 'pysqlite',
+    'yaml'      : 'PyYAML',
+    'xhtml2pdf' : 'pisa',
+    'Crypto'    : 'pycrypto',
+    'PIL'       : 'Pillow'
+}
+
+
+try:
+    from console import set_color
+except ImportError:
+    def set_color(r, g, b):
+        pass
+
+
+@contextmanager
+def console_color(r, g, b):
+    set_color(r, g, b)
+    try:
+        yield
+    finally:
+        set_color(0, 0, 0)
 
 
 try:
@@ -62,20 +97,42 @@ except NameError:
 
 
 def __get_module_version(in_module_name):
-    import importlib
-    mod = importlib.import_module(in_module_name)
-    fmt = "### hasattr({}, '{}')".format(in_module_name, '{}')
-    for attr_name in '__version__ version __VERSION__ PILLOW_VERSION VERSION'.split():
-        if in_module_name == 'markdown' and attr_name == '__version__':
-            continue
-        if in_module_name == 'reportlab':
-            attr_name = 'Version'
-        if hasattr(mod, attr_name):
-            if attr_name != '__version__':
-                print(fmt.format(attr_name))
-            the_attr = getattr(mod, attr_name)
-            return str(the_attr() if callable(the_attr) else the_attr)
-    return '?' * 5
+    try:
+        mod = importlib.import_module(in_module_name)
+        fmt = "### hasattr({}, '{}')".format(in_module_name, '{}')
+        for attr_name in ['__version__', 'version', '__VERSION__', 'PILLOW_VERSION', 'VERSION']:
+            if in_module_name == 'markdown' and attr_name == '__version__':
+                continue
+            if in_module_name == 'reportlab':
+                attr_name = 'Version'
+            if hasattr(mod, attr_name):
+                if attr_name != '__version__':
+                    with console_color(0, 1, 1):
+                        print(fmt.format(attr_name))
+                the_attr = getattr(mod, attr_name)
+                return str(the_attr() if callable(the_attr) else the_attr)
+        return '?' * 5
+    except:
+        return 'Not Found'
+
+
+
+def __get_module_version_from_pypi(module_name='bs4'):
+    module_name = PYPI_MAP.get(module_name, module_name)
+    url = 'https://pypi.python.org/pypi/{}'.format(module_name)
+    soup = bs4.BeautifulSoup(requests.get(url).content, 'html5lib')
+    tag = soup.find("h1", class_="package-header__name")
+    if tag is None:
+        return 'Not Found'
+    vers_str = tag.string.split()[-1]
+    if vers_str == 'Packages':
+        return soup.find('div', class_='section').a.string.split()[-1]
+    return vers_str
+
+
+def __get_pythonista_version():
+    plist = plistlib.readPlist(os.path.abspath(os.path.join(sys.executable, '..', 'Info.plist')))
+    return '{CFBundleShortVersionString} ({CFBundleVersion})'.format(**plist)
 
 
 def __test_dropbox_version():
@@ -104,6 +161,33 @@ def __read_token(token_filepath):
 def __write_token(token_filepath, access_token):
     with open(token_filepath, 'wt') as out_file:
         out_file.write(access_token)
+
+
+def check_dependencies(modules):
+    print('```')  # start the output with a markdown literal
+    fmt = 'Pythonista version {0} running Python {1} on iOS {2} on an {4}.'
+    with console_color(0, 1, 1):
+        print(fmt.format(__get_pythonista_version(), platform.python_version(), *platform.mac_ver()))
+        print('=' * 57)
+
+    fmt = '| {:<13} | {:<11} | {:<11} | {}'
+    div = fmt.format('-' * 13, '-' * 11, '-' * 11, '')
+    with console_color(0, 1, 1):
+        print(fmt.format('module', 'local', 'PyPI', ''))
+        print(fmt.format('name', 'version', 'version', ''))
+        print(div)
+    for module_name in modules:
+        local_version = __get_module_version(module_name)
+        pypi_version = __get_module_version_from_pypi(module_name)
+        if '?' in local_version or '$' in local_version:
+            advise = local_version
+        else:
+            advise = '' if local_version == pypi_version else 'Upgrade?'
+        with console_color(0, 1, 1):
+            print(fmt.format(module_name, local_version, pypi_version, advise))
+    with console_color(0, 1, 1):
+        print(div)
+    print('```')  # end of markdown literal
 
 
 def init(token_filename, access_token=None, token_directory='.Tokens'):
@@ -148,10 +232,4 @@ def get_token_filename():
     This method is provided so that a consistent prompt is always used.
     """
     return raw_input('Enter token filename:').strip()
-
-
-if __name__ == '__main__':
-
-
-    dbx = init(get_token_filename(), get_access_token())
 
