@@ -6,6 +6,11 @@ API V1, which is deprecated and soon to be discontinued.  The Synchronator modul
 was created using the new V2 API to synchronize Python scripts between iOS devices
 and to backup to Dropbox.
 
+**!! IMPORTANT !! - Synchronator is dependent on a number of 3rd party modules for proper operation.
+These are certifi, chardet, dropbox, idna, urllib3, and requests. I strongly recommend
+that they be installed in the above order since really it is requests that depends on
+the others and cannot work without them.**
+
 Synchronator is dependent on another module, called DropboxSetup, which saves and
 loads Dropbox access tokens for use by other Python modules.
 
