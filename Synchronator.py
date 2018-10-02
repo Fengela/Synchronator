@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python2
 """
 Synchronator.py
 Version: 1.9.0
@@ -52,12 +52,11 @@ from __future__ import print_function
 import sys
 import os
 import pickle
-import textwrap
-from functools import partial
+import requests
 from contextlib import contextmanager
 
-import requests
 import DropboxSetup
+
 
 try:
     from console import set_color
@@ -65,13 +64,9 @@ except ImportError:
     def set_color(r, g, b):
         pass
 
+
 DROPBOX_FILES = DropboxSetup.dropbox.files
 STATE_FILENAME = '.dropbox_state'
-start_end_color = (0, 1, 1)
-main_color = (0, 1, 1)
-delete_color = (1, 0, 0)
-download_color = (0, 0.5, 0)
-upload_color = (0, 1, 0)
 
 
 @contextmanager
@@ -87,33 +82,20 @@ def console_color(r, g, b):
         set_color(0, 0, 0)
 
 
-def reprompt(prompt, responses):
-    if sys.version_info[0] < 3:
-        get = raw_input
-    else:
-        get = input
-    answer = responses
-    while answer not in responses:
-        answer = get(prompt)
-    return answer
-
-
 class DropboxState:
     def __init__(self):
+        self.path_case_map = {}
         self.local_files = {}       # local file metadata
         self.remote_files = {}      # remote file metadata
-
-    def check_local_update(self, path):
-        return os.path.getmtime(path) > self.local_files[path]['modified']
 
     def check_state(self, dbx, path):
         if path not in self.remote_files:
             self.upload(dbx, path, '-- Not Found Remotely')
-        elif self.check_local_update(path):
+        elif os.path.getmtime(path) > self.local_files[path]['modified']:
             self.upload(dbx, path, '-- Local File Changed')
 
     def delete_local(self, path):
-        with console_color(*delete_color):
+        with console_color(1, 0, 0):
             print('\tDeleting Locally: ', path, ' -- File No Longer On Dropbox')
         try:
             os.remove(path)
@@ -124,12 +106,11 @@ class DropboxState:
         dir = os.path.dirname(path)
         if dir == '':
             dir = '.'
-        if os.path.exists(dir) and not os.listdir(dir):
-            print('\tFolder Empty:', path, ' -- Deleting')
-            os.removedirs(dir)
+        if not os.listdir(dir):
+            os.rmdir(dir)
 
     def delete_remote(self, dbx, path):
-        with console_color(*delete_color):
+        with console_color(1, 0, 0):
             print('\tDeleting On Dropbox: ', path, ' -- File Deleted Locally')
         try:
             dbx.files_delete('/' + path)
@@ -137,26 +118,9 @@ class DropboxState:
             del self.remote_files[path]
         except:
             print('\t!Remote Delete Failed!')
-        else:
-            dir = os.path.dirname(path)
-            if dir == '':
-                dir = '.'
-            if os.path.exists(dir) and not os.listdir(dir):
-                print('\tFolder Empty:', dir, ' -- Deleting')
-                os.removedirs(dir)
-
-            dir = '/' + dir
-            while len(dir) > 1 and not dbx.files_list_folder(dir).entries:
-                print('\tRemote Folder Empty:', dir, ' -- Deleting')
-                try:
-                    dbx.files_delete(dir)
-                except:
-                    print('\tRemote Delete Failed!')
-                    break
-                dir = os.path.dirname(dir)
 
     def download_remote(self, dbx, path, because=None):
-        with console_color(*download_color):
+        with console_color(0, 0.5, 0):
             print('\tDownloading: ', path, because or '')
         head, tail = os.path.split(path)
         if head and not os.path.exists(head):
@@ -171,7 +135,7 @@ class DropboxState:
 
     def execute_delta(self, dbx):
         current_remote_file_paths = set()
-        results = dbx.files_list_folder('', True)
+        results = dbx.files_list_folder(path='', recursive=True)
         while True:
             cursor = results.cursor
             self.__process_remote_entries(results.entries, current_remote_file_paths)
@@ -199,7 +163,7 @@ class DropboxState:
             os.makedir(path)
 
     def upload(self, dbx, path, because=None):
-        with console_color(*upload_color):
+        with console_color(0, 1, 0):
             print('\tUploading: ', path, because or '')
         size = os.path.getsize(path)
         if size > 140000000:
@@ -246,80 +210,51 @@ class DropboxState:
         self.local_files[path] = meta
         self.remote_files[path] = meta
 
-    def handle_conflict(self, dbx, path, prefer_remote=None):
-        if prefer_remote is not None:
-            if prefer_remote:
-                self.download_remote(dbx, path, '-- Preferring Remote File')
-            else:
-                self.upload(dbx, path, '-- Preferring Local File')
-            return prefer_remote
-        else:
-            prompt = '''\
-            Conflict detected at {}
-            Please choose which version to keep
-            enter "l" to upload the local version
-            enter "r" to download the remote version
-            add "a" to do the same for any other conflicted files
-                i.e. ("la" or "ra")
-            '''.format(path)
-            prompt = textwrap.dedent(prompt)
-            prompt = textwrap.indent(prompt, '\t')
-            with console_color(*main_color):
-                answer = reprompt(prompt, ('l', 'r', 'la', 'ra'))
-
-            action = answer.startswith('r')
-            self.handle_conflict(dbx, path, action)
-
-            if answer.endswith('a'):
-                return action
-            else:
-                return None
-
     def __process_remote_entries(self, entries, current_remote_file_paths):
-        prefer_remote = None
         for entry in entries:
-            path = entry.path_display[1:]
+            entry_name = entry.name
+            path_lower = entry.path_lower[1:]
+            parts = path_lower.split("/")
+            entry_path = ""
+            path_key = ""
+            for p in parts:
+                path_key = os.path.join(path_key, p)
+                if path_key in self.path_case_map:
+                    entry_path = os.path.join(entry_path, self.path_case_map[path_key])
+                else:
+                    entry_path = os.path.join(entry_path, entry_name)
             if isinstance(entry, DROPBOX_FILES.FileMetadata):
                 rev = entry.rev
                 # remote file does not currently exist locally
-                if path not in self.local_files:
+                if entry_path not in self.local_files:
                     # download remote file to local
-                    self.download_remote(dbx, path, '-- Not Found Locally')
+                    self.download_remote(dbx, entry_path, '-- Not Found Locally')
                 # remote and local files have different revisions
-                elif rev != self.local_files[path]['rev']:
-                    if self.check_local_update(path):
-                        # conflict detected, ask user for behavior
-                        prefer_remote = self.handle_conflict(dbx, path, prefer_remote)
-                    else:
-                        # no conflict, download remote file to local
-                        self.download_remote(dbx, path,
-                                             '-- Remote File Changed')
+                elif rev != self.local_files[entry_path]['rev']:
+                    # download remote file to local
+                    self.download_remote(dbx, entry_path, '-- Remote File Changed')
                 # add remote path to list
-                current_remote_file_paths.add(path)
+                current_remote_file_paths.add(entry_path)
             elif isinstance(entry, DROPBOX_FILES.FolderMetadata):
-                if not os.path.exists(path):
-                    print('\n\tMaking Directory: ', path)
-                    self.make_local_dir(path)
+                self.path_case_map[path_key] = entry_name
+                if not os.path.exists(entry_path):
+                    with console_color(0, 0.5, 0):
+                        print('\n\tMaking Directory: ', entry_path)
+                    self.make_local_dir(entry_path)
 
 
 def check_local(dbx, state):
-    with console_color(*main_color):
+    with console_color(0, 1, 1):
         print('\nChecking For New Or Updated Local Files')
     filelist = []
-    invaliddirs = set()
     for root, dirnames, filenames in os.walk('.'):
-        if root in invaliddirs:
-            invaliddirs.update(map(partial(os.path.join, root), dirnames))
-        elif valid_dir_for_upload(root):
+        if valid_dir_for_upload(root):
             for filename in filenames:
                 if valid_filename_for_upload(filename):
                     filelist.append(os.path.join(root, filename)[2:])
-        else:
-            invaliddirs.add(root)
-            invaliddirs.update(map(partial(os.path.join, root), dirnames))
     for path in filelist:
         state.check_state(dbx, path)
-    with console_color(*main_color):
+    with console_color(0, 1, 1):
         print('\nChecking For Deleted Local Files')
     oldlist = list(state.local_files.keys())
     for file in oldlist:
@@ -328,13 +263,13 @@ def check_local(dbx, state):
 
 
 def check_remote(dbx, state):
-    with console_color(*main_color):
+    with console_color(0, 1, 1):
         print('\nUpdating From Dropbox')
     state.execute_delta(dbx)
 
 
 def download():
-    with console_color(*main_color):
+    with console_color(0, 1, 1):
         print('\nGetting Synchronator.py From GIT')
     url = 'https://raw.githubusercontent.com/markhamilton1/Synchronator/master/Synchronator.py'
     r = requests.get(url)
@@ -358,7 +293,7 @@ def init_dropbox():
 
 
 def load_state():
-    with console_color(*main_color):
+    with console_color(0, 1, 1):
         print('\nLoading Local State')
     try:
         with open(STATE_FILENAME, 'rb') as state_fr:
@@ -370,15 +305,13 @@ def load_state():
 
 
 def save_state(state):
-    with console_color(*main_color):
+    with console_color(0, 1, 1):
         print('\nSaving Local State')
     with open(STATE_FILENAME, 'wb') as state_fr:
         pickle.dump(state, state_fr, pickle.HIGHEST_PROTOCOL)
 
 
 def valid_dir_for_upload(dir):
-    if dir == '.':
-        return True
     path = dir.split(os.path.sep)
     if len(path) > 1:
         # Pythonista directory
@@ -387,8 +320,9 @@ def valid_dir_for_upload(dir):
         # temp directory
         if path[1] in ['temp', 'Examples']:
             return False
+    for part in path:
         # hidden directory
-        if path[-1] != '.' and path[-1].startswith('.'):
+        if part != '.' and part.startswith('.'):
             return False
     return True
 
@@ -410,7 +344,7 @@ if __name__ == '__main__':
             rootdir = path
     os.chdir(rootdir)
 
-    with console_color(*start_end_color):
+    with console_color(0, 1, 1):
         print('****************************************')
         print('*     Dropbox File Syncronization      *')
         print('****************************************')
@@ -429,5 +363,5 @@ if __name__ == '__main__':
         check_local(dbx, state)
         # save the sync state
         save_state(state)
-        with console_color(*start_end_color):
+        with console_color(0, 1, 1):
             print('\nSync Complete')
