@@ -1,6 +1,6 @@
 """
 Synchronator.py
-Version: 1.10.1
+Version: 1.10.2
 Created by: Mark Hamilton
 Created: March 17, 2017
 
@@ -116,7 +116,7 @@ class DropboxState:
         dir = os.path.dirname(path)
         if dir == '':
             dir = '.'
-        if not os.listdir(dir):
+        if os.path.exists(dir) and not os.listdir(dir):
             os.rmdir(dir)
 
     def delete_remote(self, dbx, path):
