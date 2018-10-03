@@ -1,6 +1,6 @@
 """
 Synchronator.py
-Version: 1.10.2
+Version: 1.11.0
 Created by: Mark Hamilton
 Created: March 17, 2017
 
@@ -76,7 +76,8 @@ except ImportError:
 
 
 DROPBOX_FILES = DropboxSetup.dropbox.files
-STATE_FILENAME = '.dropbox_state'
+TOKEN_FILENAME = '.Synchronator_Token'
+STATE_FILENAME = '.Synchronator_Dropbox_State'
 
 
 @contextmanager
@@ -295,11 +296,15 @@ def download():
 
 
 def init_dropbox():
-    dbx = DropboxSetup.init('Synchronator_Token')
+    # CLEANUP AND MAINTENANCE CODE...REMOVE EVENTUALLY!!!!!!
+    __move_Synchronator_Token()
+    __rename_dropbox_state_file()
+    # END OF CLEANUP AND MAINTENANCE CODE
+    dbx = DropboxSetup.init(TOKEN_FILENAME, token_directory='.')
     if dbx is None:
         access_token = DropboxSetup.get_access_token()
         if access_token is not None and access_token != '':
-            dbx = DropboxSetup.init('Synchronator_Token', access_token)
+            dbx = DropboxSetup.init(TOKEN_FILENAME, access_token, token_directory='.')
         if dbx is None:
             with console_color(1, 0, 0):
                 print('!Failed To Initialize Dropbox Session!')
@@ -351,6 +356,26 @@ def valid_filename_for_upload(filename):
                     filename.endswith('~'),      # temporary file
                     filename.endswith('.pyc'),   # generated Python file
                     filename.endswith('.pyo')))  # generated Python file
+
+
+# ADDED IN 1.11.0 TO MOVE THE Synchronator_Token FILE FROM THE .Tokens
+# DIRECTORY TO THE Documents DIRECTORY, RENAME IT TO .Synchronator_TOKEN,
+# AND DELETE THE .Tokens DIRECTORY IF IT IS EMPTY.
+def __move_Synchronator_Token():
+    if os.path.exists('.Tokens/Synchronator_Token'):
+        with open('.Tokens/Synchronator_Token', 'rt') as sfref:
+            s = sfref.read()
+            with open(TOKEN_FILENAME, 'wt') as dfref:
+                dfref.write(s)
+                os.remove('.Tokens/Synchronator_Token')
+        if not os.listdir('.Tokens'):
+            os.rmdir('.Tokens')
+
+
+# ADDED IN 1.11.0 TO RENAME THE FILE .dropbox_state TO .Synchronator_Dropbox_State.
+def __rename_dropbox_state_file():
+    if os.path.exists('.dropbox_state'):
+        os.rename('.dropbox_state', '.Synchronator_Dropbox_State')
 
 
 if __name__ == '__main__':
