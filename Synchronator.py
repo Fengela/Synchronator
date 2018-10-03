@@ -1,6 +1,6 @@
 """
 Synchronator.py
-Version: 1.10.0
+Version: 1.10.1
 Created by: Mark Hamilton
 Created: March 17, 2017
 
@@ -312,6 +312,8 @@ def load_state():
     try:
         with open(STATE_FILENAME, 'rb') as state_fr:
             state = pickle.load(state_fr)
+        if not hasattr(state, "path_case_map"):
+            state.path_case_map = {}
     except:
         with console_color(0, 1, 0):
             print('\nCannot Find State File -- Creating New Local State')
